@@ -1,5 +1,23 @@
 // Practice TS with an Object Oriented Approach -> OOP
 
+// Drag and Drop Interfaces
+// apply Draggable below for ProjectItem class, because these items should be draggable
+interface Draggable {
+  // DragEvent is built-in method of TS
+  dragStartHandler(e: DragEvent): void;
+  dragEndHandler(e: DragEvent): void;
+}
+
+// DragTarget is for targets of a draggable items
+interface DragTarget {
+  // permit the drop: signal the browser that the thing a user is dragging something over is a valid drag target
+  dragOverHandler(e: DragEvent): void;
+  // handle the drop: react to the actual drop, e.g. update date
+  dropHandler(e: DragEvent): void;
+  // giving visual feedback to user e.g. in case of canceling the drop action somewhere
+  dragLeaveHandler(e: DragEvent): void;
+}
+
 // Project Type Class
 enum ProjectStatus { Active, Finished }
 
@@ -57,6 +75,19 @@ class ProjectState extends State<Project>{
       ProjectStatus.Active, // using enum to set every created project first to status active
     );
     this.projects.push(newProject);
+    this.updateListeners();
+  }
+  
+  moveProject(projectId: string, newStatus: ProjectStatus) {
+    const project = this.projects.find(prj => prj.id === projectId);
+    // only update if project with id found and new status is different from before
+    if(project && project.status !== newStatus) {
+      project.status = newStatus;
+      this.updateListeners();
+    }  
+  }
+
+  private updateListeners() {
     // loop through all stored listener functions and call them
     for(const listenerFn of this.listeners) {
       // a) use slice() to pass a new copy of the listeners arr, NOT only a reference to this listeners arr with this.projects;
@@ -170,8 +201,10 @@ abstract class Component<T extends HTMLElement, U extends HTMLElement> {
 }
 
 // ProjectItem Class
-// responsible for rendering a single project item
-class ProjectItem extends Component<HTMLUListElement, HTMLLIElement> {
+// responsible for rendering a single project item;
+// implements interface Draggable for needed functions to drag and drop items
+class ProjectItem extends Component<HTMLUListElement, HTMLLIElement> 
+  implements Draggable {
   // create prop to store a project into it
   private project: Project;
 
@@ -191,7 +224,25 @@ class ProjectItem extends Component<HTMLUListElement, HTMLLIElement> {
     this.renderContent();
   }
 
-  configure() {}
+  @Autobind
+  dragStartHandler(e: DragEvent) {
+    // attach data to an event with dataTransfer prop to ensure that the dragged data is identical to the dropped data;
+    // later on drop I'll be able to extract the data;
+    // to save memory, transfer only project id (with data type 'text/plain') that I use later to refetch the whole project obj
+    e.dataTransfer!.setData('text/plain', this.project.id);
+    e.dataTransfer!.effectAllowed = 'move'; // determines how cursor looks like and tells browser user's intention to move smth
+  }
+
+  // Don't need @Autobind here because don't use binded "this" in the function
+  dragEndHandler(_: DragEvent) {
+    console.log('DragEnd');
+  }
+
+  configure() {
+    this.renderedEl.addEventListener('dragstart', this.dragStartHandler)
+    this.renderedEl.addEventListener('dragend', this.dragEndHandler)
+  }
+
   renderContent() {
     this.renderedEl.querySelector('h2')!.textContent = this.project.title;
     // use getter for right naming of output; Note: getters are accessed like normal properties (without parantheses)
@@ -201,8 +252,9 @@ class ProjectItem extends Component<HTMLUListElement, HTMLLIElement> {
 }
 
 // ProjectList Class
-// specify in <HTMLDivElement, HTMLElement> which types are meant now in Component class
-class ProjectList extends Component<HTMLDivElement, HTMLElement> {
+// specify Generics to <HTMLDivElement, HTMLElement> in order to indicate TS which types are meant now in Component class;
+// this class acts as a target for drag and drop, so it implements also interface DragTarget
+class ProjectList extends Component<HTMLDivElement, HTMLElement> implements DragTarget {
   assignedProjects: Project[];
 
   // I use shorthand in parantheses of constructor to create equally named props in class;
@@ -215,12 +267,44 @@ class ProjectList extends Component<HTMLDivElement, HTMLElement> {
     this.configure();
     this.renderContent();
   }
-
   // Note: it's a convention of order to have first public methods and then private methods
+
+  // change appearance of box or unordered list (use css class .droppable) to visualize that this is a droppable area;
+  // use decorator to ensure that "this" keyword is bound to surrounding class, NOT to the event target object
+  @Autobind
+  dragOverHandler(e: DragEvent) {
+    // only allow drop action for 'text/plain'
+    if(e.dataTransfer && e.dataTransfer.types[0] === 'text/plain') {
+      // preventDefault() is important, only with this the drop is allowed and triggered on element;
+      // explanation: JS's default is NOT to allow drop
+      e.preventDefault();
+      const listEl = this.renderedEl.querySelector('ul')!;
+      listEl.classList.add('droppable'); // change background color thanks to added class
+    }
+  }
+  
+  @Autobind
+  dropHandler(e: DragEvent) {
+    const prjId = e.dataTransfer!.getData('text/plain');
+    projectState.moveProject(prjId, this.type === 'active' ? ProjectStatus.Active : ProjectStatus.Finished);
+  }
+  
+  @Autobind
+  dragLeaveHandler(_: DragEvent) {
+    const listEl = this.renderedEl.querySelector('ul')!;
+    listEl.classList.remove('droppable'); // remove changed background color when cursor leaves area of an element
+  }
 
   // projects list and filtering
   configure() {
-    // register a listener function: when projects state changed then update assignedProjects list
+    // register event listener functions
+
+    // all needed listeners for drag and drop functionality
+    this.renderedEl.addEventListener('dragover', this.dragOverHandler);
+    this.renderedEl.addEventListener('dragleave', this.dragLeaveHandler);
+    this.renderedEl.addEventListener('drop', this.dropHandler);
+
+    // when projects state changed then update assignedProjects list
     projectState.addListener((projects: Project[]) => {
       // filter projects in 'active' and 'finished' before storing in assignedProjects arr
       const relevantProjects = projects.filter(prj => {
