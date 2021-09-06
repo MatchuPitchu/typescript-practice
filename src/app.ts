@@ -1,3 +1,5 @@
+// Practice TS with an Object Oriented Approach -> OOP
+
 // Project Type Class
 enum ProjectStatus { Active, Finished }
 
@@ -13,25 +15,36 @@ class Project {
 }
 
 // Project State Management Class with Singleton (-> only one instance is allowed to exist)
-// define type Listener to encode a function type with one word; use "void" because listener fn don't need to return anything
-type Listener = (items: Project[]) => void;
+// define type Listener to encode a function type with one word; use "void" because listener fn don't need to return anything;
+// use Generic Type to set a typ dynamically from outside
+type Listener<T> = (items: T[]) => void;
 
-class ProjectState {
-  private listeners: Listener[] = []; // list of listener function references
+// State base class to practice inheritance
+class State<T> {
+  // tell TS which Generic Type (here: <T>) the Listeners use for this state object I create;
+  // use "protected" that it can be accessed in inherited classes
+  protected listeners: Listener<T>[] = []; // list of listener function references
+
+  // possibility to store event listener functions in an array
+  addListener(listenerFn: Listener<T>) {
+    this.listeners.push(listenerFn);
+  }
+}
+
+// this class is managing projects, so Generic Type which is set is <Project> class
+class ProjectState extends State<Project>{
   private projects: Project[] = [];
   private static instance: ProjectState;
 
-  private constructor() {} // set to private because class should be instantiated only once
+  // set to private because class should be instantiated only once
+  private constructor() {
+    super();
+  } 
 
   static getInstance() {
     if(this.instance) return this.instance;
     this.instance = new ProjectState();
     return this.instance;
-  }
-
-  // possibility to store event listener functions in an array
-  addListener(listenerFn: Listener) {
-    this.listeners.push(listenerFn);
   }
 
   addProject(title: string, description: string, numOfPeople: number) {
@@ -46,9 +59,11 @@ class ProjectState {
     this.projects.push(newProject);
     // loop through all stored listener functions and call them
     for(const listenerFn of this.listeners) {
-      // use slice() to pass a new copy of the listeners arr, NOT only a reference to this listeners arr;
+      // a) use slice() to pass a new copy of the listeners arr, NOT only a reference to this listeners arr with this.projects;
       // it's better to avoid possible strange bugs
-      listenerFn(this.projects.slice())
+      // listenerFn(this.projects.slice())
+      // b) use better ES6 way
+      listenerFn([...this.projects])
     }
   }
 }
@@ -111,92 +126,154 @@ const Autobind = (_: any, _2: string, descriptor: PropertyDescriptor) => {
   return adjDescriptor;
 }
 
-// Using an Object Oriented Approach -> OOP
-// ProjectList Class
-class ProjectList {
+// Component Base Class
+// responsible for basic settings to render something on the screen;
+// it's an abstract class, so you cannot instantiate it directly, it's only for inheritance purposes;
+// using Generics to set dynamically a) the place where I want to render something (-> T) and b) the element that I do render (-> U)
+abstract class Component<T extends HTMLElement, U extends HTMLElement> {
   templateEl: HTMLTemplateElement;
-  hostEl: HTMLDivElement;
-  sectionEl: HTMLElement; // because there is no more specialized type for section tags
+  hostEl: T; // HTMLDivElement
+  renderedEl: U; // HTMLElement or HTMLFormElement
+
+  constructor(
+    templateId: string,
+    hostElId: string,
+    insertAtStart: boolean,
+    newElementId?: string
+  ) {
+    // use Type Casting to specify which exact HTML type I'll save here in variable
+    this.templateEl = document.getElementById(templateId)! as HTMLTemplateElement;
+    this.hostEl = document.getElementById(hostElId)! as T;
+
+    // when creating new inherited class instance of this class, then save all HTML content (with deep clone, 
+    // so all deeper levels -> that's why I set "true") in const what's inside HTML template element;
+    // and then the first child (-> form element) in the renderedEl property of class
+    const importedNode = document.importNode(this.templateEl.content, true);
+    this.renderedEl = importedNode.firstElementChild as U;
+    // add id with stylings in app.css
+    if (newElementId) this.renderedEl.id = newElementId;
+
+    this.attach(insertAtStart);
+  }
+
+  // add project list at the end of hostEl
+  private attach(insertAtBeginning: boolean) {
+    this.hostEl.insertAdjacentElement(
+      insertAtBeginning ? 'afterbegin' : 'beforeend',
+      this.renderedEl
+    );
+  }
+
+  // use abstract to force every class inheriting from Component to have these functions
+  abstract configure(): void;
+  abstract renderContent(): void;
+}
+
+// ProjectItem Class
+// responsible for rendering a single project item
+class ProjectItem extends Component<HTMLUListElement, HTMLLIElement> {
+  // create prop to store a project into it
+  private project: Project;
+
+  // it's a convention to define getters and setters above the constructor;
+  // getters are made to transform data like in this case here
+  get persons() {
+    if(this.project.people === 1) return '1 person';
+      else return `${this.project.people} persons` 
+  }
+
+  constructor(hostId: string, project: Project) {
+    super('single-project', hostId, false, project.id);
+    // store the in constructor passed argument in project prop of class
+    this.project = project;
+
+    this.configure();
+    this.renderContent();
+  }
+
+  configure() {}
+  renderContent() {
+    this.renderedEl.querySelector('h2')!.textContent = this.project.title;
+    // use getter for right naming of output; Note: getters are accessed like normal properties (without parantheses)
+    this.renderedEl.querySelector('h3')!.textContent = this.persons + ' assigned';
+    this.renderedEl.querySelector('p')!.textContent = this.project.description;
+  }
+}
+
+// ProjectList Class
+// specify in <HTMLDivElement, HTMLElement> which types are meant now in Component class
+class ProjectList extends Component<HTMLDivElement, HTMLElement> {
   assignedProjects: Project[];
 
   // I use shorthand in parantheses of constructor to create equally named props in class;
   // 1 parameter with essential information: active OR finished projects
   constructor(private type: 'active' | 'finished') {
-    this.templateEl = document.getElementById('project-list')! as HTMLTemplateElement;
-    this.hostEl = document.getElementById('app')! as HTMLDivElement;
+    // pass Arguments to constructor of Component base class
+    super('project-list', 'app', false, `${type}-projects`);
     this.assignedProjects = [];
 
-    const importedNode = document.importNode(this.templateEl.content, true);
-    this.sectionEl = importedNode.firstElementChild as HTMLElement;
-    // add id with stylings i n app.css
-    this.sectionEl.id = `${this.type}-projects`;
+    this.configure();
+    this.renderContent();
+  }
 
+  // Note: it's a convention of order to have first public methods and then private methods
+
+  // projects list and filtering
+  configure() {
     // register a listener function: when projects state changed then update assignedProjects list
     projectState.addListener((projects: Project[]) => {
-      this.assignedProjects = projects;
+      // filter projects in 'active' and 'finished' before storing in assignedProjects arr
+      const relevantProjects = projects.filter(prj => {
+        if(this.type === 'active') return prj.status === ProjectStatus.Active;
+          else return prj.status === ProjectStatus.Finished;
+      })
+      this.assignedProjects = relevantProjects;
       this.renderProjects();
     });
+  }
 
-    this.attach();
-    this.renderContent();
+  // fill blank content in HTML template;
+  // cannot be private because it's a defined as abstract in Component base class
+  renderContent() {
+    const listId = `${this.type}-projects-list`;
+    // select first ul element
+    this.renderedEl.querySelector('ul')!.id = listId;
+    this.renderedEl.querySelector('h2')!.textContent = this.type.toUpperCase() + ' PROJECTS';
   }
 
   // render projects
   private renderProjects() {
     const listEl = document.getElementById(`${this.type}-projects-list`)! as HTMLUListElement;
+    // Problem: Duplicates - new projects + all existing projects are appended to list that contains already all existing projects;
+    // since it's a small web project here, don't need performance intensive comparison which list elements are already listed;
+    // simple solution: before every rendering, set listEl to empty string
+    listEl.innerHTML = '';
+
     // loop through all project items in order to render all the project object items (look at "const newProject")
     for(const prjItem of this.assignedProjects) {
-      const listItem = document.createElement('li');
-      listItem.textContent = prjItem.title;
-      listEl.appendChild(listItem)
+      // create new instance of ProjectItem class in ul element in which I render a new li project item
+      new ProjectItem(this.renderedEl.querySelector('ul')!.id, prjItem)
     }
-  }
-
-  // fill blank content in HTML template
-  private renderContent() {
-    const listId = `${this.type}-projects-list`;
-    // select first ul element
-    this.sectionEl.querySelector('ul')!.id = listId;
-    this.sectionEl.querySelector('h2')!.textContent = this.type.toUpperCase() + ' PROJECTS';
-  }
-
-  // add project list at the end of hostEl
-  private attach() {
-    this.hostEl.insertAdjacentElement('beforeend', this.sectionEl);
   }
 }
 
-
 // ProjectInput Class
-class ProjectInput {
-  templateEl: HTMLTemplateElement;
-  hostEl: HTMLDivElement;
-  formEl: HTMLFormElement;
+class ProjectInput extends Component<HTMLDivElement, HTMLFormElement> {
   titleInputEl: HTMLInputElement;
   descriptionInputEl: HTMLInputElement;
   peopleInputEl: HTMLInputElement;
 
   constructor() {
-    // use Type Casting to specify which exact HTML type I'll save here in variable
-    this.templateEl = document.getElementById('project-input')! as HTMLTemplateElement;
-    this.hostEl = document.getElementById('app')! as HTMLDivElement;
+    super('project-input', 'app', true, 'user-input')
 
-    // when creating new instance of this class, then rendering a form that belongs to this instance;
-    // save all the HTML content (with deep clone, so all deeper levels -> that's why I set "true") in const
-    // and then the first child (-> form element) in property of class
-    const importedNode = document.importNode(this.templateEl.content, true);
-    this.formEl = importedNode.firstElementChild as HTMLFormElement;
-    // add id with stylings i n app.css
-    this.formEl.id = 'user-input';
-
-    // get access to input form elements
-    this.titleInputEl = this.formEl.querySelector('#title')! as HTMLInputElement;
-    this.descriptionInputEl = this.formEl.querySelector('#description')! as HTMLInputElement;
-    this.peopleInputEl = this.formEl.querySelector('#people')! as HTMLInputElement;
-
-    // invoke event methods + invoke attach method that adds element to hostEl
+    // get access to input form elements; 
+    // I could move it into the configure function, makes no difference, BUT then TS would complain
+    // that titleInputEl etc. aren't initialized in the constructor although they would also be indirectly
+    this.titleInputEl = this.renderedEl.querySelector('#title')! as HTMLInputElement;
+    this.descriptionInputEl = this.renderedEl.querySelector('#description')! as HTMLInputElement;
+    this.peopleInputEl = this.renderedEl.querySelector('#people')! as HTMLInputElement;
+    
     this.configure();
-    this.attach();
   }
 
   // methods are private because I never access these from outside the class
@@ -242,6 +319,20 @@ class ProjectInput {
     }
   }
 
+  // cannot be private because it's a defined as abstract in Component base class
+  configure() {
+    // "this" without .bind(this) points in submitHandler on the event target, not on the prop in my class; 
+    // so value would be undefined; arg of bind() is here "this" (means class obj) to indicate that "this" inside of 
+    // submitHandler will always refer to the same context than "this" in configure() (-> that means to class obj, NOT to event target)
+    // this.renderedEl.addEventListener('submit', this.submitHandler)
+
+    // this line works only with autobind decorator, otherwise look above
+    this.renderedEl.addEventListener('submit', this.submitHandler)
+  }
+
+  // this is technically not required, BUT to satisfy the Component base class, add it here with empty content
+  renderContent() {}
+
   // reset inputs after submit form
   private clearInputs() {
     this.titleInputEl.value = '';
@@ -262,20 +353,6 @@ class ProjectInput {
       projectState.addProject(title, desc, people);
       this.clearInputs();
     }
-  }
-
-  private configure() {
-    // "this" without .bind(this) points in submitHandler on the event target, not on the prop in my class; 
-    // so value would be undefined; arg of bind() is here "this" (means class obj) to indicate that "this" inside of 
-    // submitHandler will always refer to the same context than "this" in configure() (-> that means to class obj, NOT to event target)
-    // this.formEl.addEventListener('submit', this.submitHandler)
-
-    // this works only with autobind decorator
-    this.formEl.addEventListener('submit', this.submitHandler)
-  }
-
-  private attach() {
-    this.hostEl.insertAdjacentElement('afterbegin', this.formEl);
   }
 }
 
