@@ -1,4 +1,4 @@
-import { Project, ProjectStatus } from '../models/project.js';
+import { Project, ProjectStatus } from '../models/project';
 
 // define "type Listener" to encode a function type with one word; use "void" because listener fn don't need to return anything;
 // use Generic Type to set a typ dynamically from outside
